@@ -1,1 +1,1 @@
-[# ](https://zryadj.github.io/todo-time/)
+https://zryadj.github.io/todo-time/
