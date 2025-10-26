@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>时间轴事件记录</title>
+  <style>
+    :root{
+      --bg: #0b1020;
+      --panel: rgba(255,255,255,0.06);
+      --panel-strong: rgba(255,255,255,0.12);
+      --text: #e8ecf8;
+      --muted: #a7b0c0;
+      --primary: #7aa2ff;
+      --accent: #86f7d3;
+      --danger: #ff7a99;
+      --shadow: 0 20px 50px rgba(0,0,0,0.35);
+      --radius-xl: 18px;
+      --radius-lg: 14px;
+      --radius-md: 10px;
+      --line: linear-gradient(180deg, #7aa2ff, #86f7d3);
+      --gutter: 96px; /* 竖线与卡片的基准间距 */
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(1200px 700px at 20% -10%, rgba(134,247,211,0.18), transparent 60%),
+                  radial-gradient(900px 700px at 120% 10%, rgba(122,162,255,0.15), transparent 50%),
+                  var(--bg);
+      color: var(--text);
+    }
+    .app{display:grid; grid-template-columns: 1fr 280px; gap:20px; padding:24px; max-width:1400px; margin:0 auto}
+    header{
+      grid-column: 1 / -1;
+      position: sticky; top:0; z-index:10; backdrop-filter: blur(10px);
+      background: linear-gradient(180deg, rgba(11,16,32,0.8), rgba(11,16,32,0.5));
+      border-bottom: 1px solid var(--panel-strong);
+      margin:-24px -24px 16px; padding:16px 24px 18px;
+    }
+    .titlebar{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:14px}
+    h1{margin:0; font-size:22px; letter-spacing:0.5px}
+    .actions{display:flex; gap:10px; flex-wrap:wrap}
+    .btn{appearance:none; border:1px solid var(--panel-strong); color:var(--text); background:var(--panel);
+         padding:10px 14px; border-radius:12px; cursor:pointer; transition: .2s transform,.2s background;
+         box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02)}
+    .btn:hover{transform: translateY(-1px); background: rgba(255,255,255,0.08)}
+    .btn.primary{border-color: transparent; background: linear-gradient(90deg, #6b8cff, #6fe6c9); color:#0a1130}
+    .btn.danger{border-color: transparent; background: linear-gradient(90deg, #ff7aa3, #ffb37a); color:#220814}
+
+    .card{background: var(--panel); border:1px solid var(--panel-strong); border-radius: var(--radius-xl); box-shadow: var(--shadow)}
+
+    .form{display:grid; grid-template-columns: repeat(8, minmax(0,1fr)); gap:12px; align-items:end}
+    .field{display:flex; flex-direction:column; gap:8px}
+    .field label{font-size:12px; color:var(--muted)}
+    input[type="text"], input[type="date"], input[type="time"], select, textarea{
+      width:100%; padding:12px 12px; border-radius: 12px; background: rgba(255,255,255,0.06);
+      border:1px solid var(--panel-strong); color:var(--text); outline:none; transition: .15s border-color, .15s box-shadow;
+    }
+    /* 保留此前需求：类型下拉黑字白底 */
+    select{color:#000; background:#fff}
+    textarea{min-height:44px; resize: vertical}
+    input:focus, select:focus, textarea:focus{border-color: var(--primary); box-shadow: 0 0 0 3px rgba(122,162,255,0.25)}
+
+    .timeline-wrap{display:grid; grid-template-columns: 1fr 280px; gap:20px;}
+
+    /* 统一对齐：使用固定 gutter，将竖线置于 gutter 中心，事件卡片从 gutter 右侧开始 */
+    .timeline{position:relative; overflow:auto; height: calc(100vh - 220px); padding: 10px 16px 10px 16px}
+    .time-line{position:absolute; left: calc(var(--gutter)/2); top:0; bottom:0; width:4px; background: var(--panel-strong); border-radius:8px}
+    .timeline-inner{margin-left: var(--gutter);}
+
+    .group{position:relative; margin: 0 0 26px 0}
+    .date-sticky{position:sticky; top:6px; display:inline-block; margin-left: calc(-1 * (var(--gutter) - 16px)); padding:6px 12px; border-radius:12px;
+      background: rgba(122,162,255,0.12); border:1px solid rgba(122,162,255,0.35); color:#cfe0ff; font-size:12px; backdrop-filter: blur(6px)}
+
+    .event{position:relative; background: rgba(255,255,255,0.06); border:1px solid var(--panel-strong); border-radius:16px; padding:12px 14px; margin:12px 0 12px 0; transition:.15s transform,.15s background}
+    .event:hover{transform: translateY(-1px); background: rgba(255,255,255,0.09)}
+    /* 让圆点中心严格落在时间线中心 */
+    .event::before{content:""; position:absolute; left: calc(-1 * var(--gutter)/2 - 8px); top:18px; width:16px; height:16px; border-radius:50%; background: var(--panel-strong); outline:4px solid rgba(255,255,255,0.06);}    
+    .event[data-type="日常"]::before{background: #7aa2ff}
+    .event[data-type="额外"]::before{background: #86f7d3}
+    .event[data-type="游戏"]::before{background: #ffb37a}
+    .event[data-type="运动"]::before{background: #86f49b}
+    .event[data-type="学习"]::before{background: #ff7aa3}
+
+    .event-head{display:flex; align-items:center; justify-content:space-between; gap:10px}
+    .event-meta{font-size:12px; color:var(--muted)}
+    .type-chip{font-size:11px; padding:4px 8px; border-radius:999px; background: rgba(255,255,255,0.08); border:1px solid var(--panel-strong)}
+    .event-title{margin:6px 0 6px; font-weight:600}
+    .event-notes{font-size:13px; color:#d6dbea; white-space: pre-wrap}
+
+    .rightbar{position:sticky; top:92px; height: calc(100vh - 140px)}
+    .rb-card{height:100%; padding:14px}
+    .rb-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+    .rb-search{margin-bottom:10px}
+    .date-list{overflow:auto; height: calc(100% - 90px); padding-right:4px}
+    .date-item{display:flex; gap:8px; align-items:center; justify-content:space-between; padding:8px 10px; margin:6px 0; border-radius:12px; cursor:pointer; transition:.15s background;border:1px solid transparent}
+    .date-item:hover{background: rgba(255,255,255,0.06); border-color: var(--panel-strong)}
+    .date-item small{color: var(--muted)}
+
+    .empty{padding:16px; color:var(--muted)}
+    .help{font-size:12px; color:var(--muted)}
+
+    @media (max-width: 1024px){
+      :root{ --gutter: 72px; }
+      .app{grid-template-columns: 1fr}
+      .timeline-wrap{grid-template-columns: 1fr}
+      .rightbar{position:static; height:auto}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="card">
+      <div class="titlebar">
+        <h1>⏱️ 时间轴事件记录</h1>
+        <div class="actions">
+          <button class="btn" id="btnToday" title="快速回到今天">回到今天</button>
+          <button class="btn" id="btnExport" title="导出为 CSV（Excel 可打开）">导出CSV</button>
+          <input type="file" id="fileImport" accept=".csv,text/csv" hidden>
+          <button class="btn" id="btnImport" title="从 CSV 导入（将覆盖当前缓存）">导入CSV</button>
+          <button class="btn danger" id="btnClear" title="清空所有本地数据">清空数据</button>
+          <button class="btn primary" id="btnAdd" title="添加事件">添加事件</button>
+        </div>
+      </div>
+      <!-- 表单改为弹窗，不在头部常驻显示 -->
+    </header>
+
+    <div class="timeline-wrap">
+      <section class="timeline card" id="timeline">
+        <div class="time-line"></div>
+        <div class="timeline-inner">
+          <div id="timelineContent"></div>
+        </div>
+      </section>
+      <aside class="rightbar">
+        <div class="rb-card card">
+          <div class="rb-head">
+            <strong>按日期跳转</strong>
+            <button class="btn" id="btnCollapseDates" style="padding:6px 10px">折叠/展开</button>
+          </div>
+          <div class="rb-search">
+            <input id="dateSearch" type="text" placeholder="搜索日期或关键字...">
+          </div>
+          <div class="date-list" id="dateList"></div>
+        </div>
+      </aside>
+  </div>
+
+  <!-- 弹窗：复用原表单结构与样式，仅改变呈现方式为模态 -->
+  <div class="modal" id="modalAdd" style="position:fixed; inset:0; display:none; align-items:center; justify-content:center; backdrop-filter: blur(2px); background: rgba(0,0,0,0.45); z-index:1000;">
+    <div class="card" style="width:min(920px, 92vw); padding:16px; border-radius: var(--radius-xl); box-shadow: var(--shadow);" role="dialog" aria-modal="true">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px">
+        <strong>添加事件</strong>
+        <button class="btn" id="btnCloseModal" aria-label="关闭" style="padding:6px 10px">关闭</button>
+      </div>
+      <form id="eventForm" class="form">
+        <div class="field" style="grid-column: span 2">
+          <label for="date">日期</label>
+          <input id="date" type="date" required>
+        </div>
+        <div class="field" style="grid-column: span 2">
+          <label for="time">时间</label>
+          <input id="time" type="time" required>
+        </div>
+        <div class="field" style="grid-column: span 2">
+          <label for="type">类型</label>
+          <select id="type" required>
+            <option>日常</option>
+            <option>额外</option>
+            <option>游戏</option>
+            <option>运动</option>
+            <option>学习</option>
+          </select>
+        </div>
+        <div class="field" style="grid-column: span 8">
+          <label for="title">事件标题</label>
+          <input id="title" type="text" placeholder="做了什么？（必填）" required>
+        </div>
+        <div class="field" style="grid-column: span 8">
+          <label for="notes">备注</label>
+          <textarea id="notes" placeholder="可选"></textarea>
+        </div>
+        <div style="grid-column: span 8; display:flex; justify-content:flex-end; gap:10px">
+          <button type="button" class="btn" id="btnCancel">取消</button>
+          <button class="btn primary" type="submit">添加事件</button>
+        </div>
+      </form>
+      <div class="help" style="margin-top:8px">数据仅保存在本地浏览器缓存。导入 CSV 时会覆盖当前缓存；CSV 可由 Excel 另存为“逗号分隔值 (*.csv)”获得。</div>
+    </div>
+  </div>
+
+  <script>
+    /*** 数据层 ***/
+    const KEY = 'timelineEventsV1';
+    const TYPES = ['日常','额外','游戏','运动','学习'];
+
+    function loadEvents(){
+      try{ return JSON.parse(localStorage.getItem(KEY) || '[]').map(e=>({...e, datetime: new Date(e.datetime)})); }
+      catch{ return [] }
+    }
+    function saveEvents(list){
+      // 存储为 ISO 字符串
+      const sanitized = list.map(e=>({...e, datetime: (new Date(e.datetime)).toISOString()}));
+      localStorage.setItem(KEY, JSON.stringify(sanitized));
+    }
+
+    /*** 工具 ***/
+    const fmt = new Intl.DateTimeFormat('zh-CN', {
+      dateStyle: 'medium', timeStyle: 'short'
+    });
+    const fmtDate = (d)=> d.toISOString().slice(0,10); // YYYY-MM-DD
+    const fmtTime = (d)=> d.toTimeString().slice(0,5);
+
+    function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
+
+    /*** 视图渲染（增量） ***/
+    let allEvents = loadEvents().sort((a,b)=> b.datetime - a.datetime);
+    let chunk = 40; // 每次渲染的事件数
+    let renderedCount = 0;
+    let dateAnchors = {}; // date -> element id
+
+    const timelineContent = document.getElementById('timelineContent');
+    const timeline = document.getElementById('timeline');
+    const dateListEl = document.getElementById('dateList');
+
+    function groupByDate(events){
+      const map = new Map();
+      for(const e of events){
+        const d = fmtDate(new Date(e.datetime));
+        if(!map.has(d)) map.set(d, []);
+        map.get(d).push(e);
+      }
+      return map;
+    }
+
+    function ensureGroup(dateStr){
+      let group = document.getElementById('grp-'+dateStr);
+      if(group) return group;
+      group = document.createElement('div');
+      group.className = 'group';
+      group.id = 'grp-'+dateStr;
+      const sticky = document.createElement('div');
+      sticky.className = 'date-sticky';
+      sticky.textContent = dateStr;
+      group.appendChild(sticky);
+      timelineContent.appendChild(group);
+      dateAnchors[dateStr] = group.id;
+      return group;
+    }
+
+    function renderMore(){
+      const next = allEvents.slice(renderedCount, renderedCount + chunk);
+      if(next.length===0) return;
+      const byDate = groupByDate(next);
+      // 保持倒序（新到旧）
+      const dates = Array.from(byDate.keys()).sort((a,b)=> a<b?1:-1);
+      for(const d of dates){
+        const group = ensureGroup(d);
+        for(const e of byDate.get(d)){
+          const card = document.createElement('div');
+          card.className = 'event';
+          card.dataset.type = e.type;
+          card.innerHTML = `
+            <div class="event-head">
+              <div class="event-meta">${fmtTime(new Date(e.datetime))} · <span class="type-chip">${e.type}</span></div>
+              <div style="display:flex; gap:6px">
+                <button class="btn" data-act="edit" data-id="${e.id}" style="padding:6px 10px">编辑</button>
+                <button class="btn" data-act="del" data-id="${e.id}" style="padding:6px 10px">删除</button>
+              </div>
+            </div>
+            <div class="event-title">${escapeHtml(e.title)}</div>
+            ${e.notes?`<div class="event-notes">${escapeHtml(e.notes)}</div>`:''}
+          `;
+          group.appendChild(card);
+        }
+      }
+      renderedCount += next.length;
+    }
+
+    function rebuildAll(){
+      // 重建整个时间线（例如导入或清空后）
+      timelineContent.innerHTML = '';
+      dateAnchors = {};
+      renderedCount = 0;
+      renderMore();
+      buildDateList();
+    }
+
+    // 无限下滑加载
+    timeline.addEventListener('scroll', ()=>{
+      const nearBottom = timeline.scrollTop + timeline.clientHeight >= timeline.scrollHeight - 100;
+      if(nearBottom) renderMore();
+    });
+
+    // 右侧日期列表
+    function buildDateList(filter=''){
+      const dates = Array.from(new Set(allEvents.map(e=>fmtDate(new Date(e.datetime))))).sort((a,b)=> a<b?1:-1);
+      const f = filter.trim();
+      const lower = f.toLowerCase();
+      dateListEl.innerHTML = '';
+      if(dates.length===0){
+        dateListEl.innerHTML = `<div class="empty">暂无数据。添加一些事件吧～</div>`; return;
+      }
+      // 小统计：每个日期条目包含数量
+      const countMap = dates.reduce((acc,d)=>{
+        acc[d] = allEvents.filter(e=>fmtDate(new Date(e.datetime))===d && (f? (e.title+"\n"+(e.notes||'')).toLowerCase().includes(lower) : true)).length; return acc;
+      }, {});
+
+      dates.forEach(d=>{
+        if(f && countMap[d]===0) return;
+        const item = document.createElement('div');
+        item.className = 'date-item';
+        item.innerHTML = `<span>${d}</span><small>${countMap[d]}</small>`;
+        item.addEventListener('click', ()=> jumpToDate(d));
+        dateListEl.appendChild(item);
+      });
+    }
+
+    function jumpToDate(dateStr){
+      const id = dateAnchors[dateStr];
+      if(id){
+        const el = document.getElementById(id);
+        el?.scrollIntoView({behavior:'smooth', block:'start'});
+      } else {
+        // 尚未渲染到该日期，则逐步渲染直到包含
+        while(!dateAnchors[dateStr] && renderedCount < allEvents.length){
+          renderMore();
+        }
+        const el2 = document.getElementById(dateAnchors[dateStr]);
+        el2?.scrollIntoView({behavior:'smooth', block:'start'});
+      }
+    }
+
+    // 回到今天
+    document.getElementById('btnToday').addEventListener('click', ()=>{
+      const today = new Date();
+      const ds = fmtDate(today);
+      jumpToDate(ds);
+    });
+
+    // 折叠
+    let collapsed = false;
+    document.getElementById('btnCollapseDates').addEventListener('click',()=>{
+      collapsed = !collapsed;
+      dateListEl.style.display = collapsed ? 'none' : 'block';
+    });
+
+    document.getElementById('dateSearch').addEventListener('input', (e)=>{
+      buildDateList(e.target.value);
+    });
+
+    /*** 表单 ***/
+    const form = document.getElementById('eventForm');
+    const dateInput = document.getElementById('date');
+    const timeInput = document.getElementById('time');
+    const typeInput = document.getElementById('type');
+    const titleInput = document.getElementById('title');
+    const notesInput = document.getElementById('notes');
+
+    function initNow(){
+      const now = new Date();
+      const tzOffset = now.getTimezoneOffset();
+      // 正常填充本地日期与时间
+      dateInput.value = fmtDate(now);
+      timeInput.value = ("0"+now.getHours()).slice(-2)+":"+("0"+now.getMinutes()).slice(-2);
+    }
+
+    form.addEventListener('submit', (e)=>{
+      e.preventDefault();
+      try{
+        const d = dateInput.value;
+        const t = timeInput.value;
+        const dt = new Date(d + 'T' + t + ':00');
+        if(isNaN(dt)) throw new Error('时间无效');
+        const ev = {
+          id: uid(),
+          datetime: dt,
+          type: typeInput.value,
+          title: titleInput.value.trim(),
+          notes: notesInput.value.trim()
+        };
+        if(!ev.title) { alert('请填写事件标题'); return; }
+        allEvents.push(ev);
+        allEvents.sort((a,b)=> b.datetime - a.datetime);
+        saveEvents(allEvents);
+        // 更聪明的增量：重建即可（简单稳妥）
+        rebuildAll();
+        // 清空标题与备注
+        titleInput.value='';
+        notesInput.value='';
+      }catch(err){
+        alert('添加失败：'+err.message)
+      }
+    });
+
+    // 事件编辑与删除（事件委托）
+    const timelineInner = document.querySelector('.timeline-inner');
+    timelineInner.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button[data-act]');
+      if(!btn) return;
+      const id = btn.getAttribute('data-id');
+      const act = btn.getAttribute('data-act');
+      if(act==='del'){
+        if(confirm('确定删除该事件？')){
+          allEvents = allEvents.filter(x=>x.id!==id);
+          saveEvents(allEvents);
+          rebuildAll();
+        }
+      } else if(act==='edit'){
+        const ev = allEvents.find(x=>x.id===id);
+        if(!ev) return;
+        const newTitle = prompt('编辑标题：', ev.title);
+        if(newTitle===null) return;
+        const newNotes = prompt('编辑备注：', ev.notes||'');
+        ev.title = newTitle.trim();
+        ev.notes = (newNotes||'').trim();
+        saveEvents(allEvents);
+        rebuildAll();
+      }
+    });
+
+    // 导出 CSV（Excel 兼容）
+    document.getElementById('btnExport').addEventListener('click', ()=>{
+      if(allEvents.length===0){ alert('暂无数据可导出'); return; }
+      const header = 'datetime,type,title,notes\n';
+      const rows = allEvents
+        .slice()
+        .sort((a,b)=> a.datetime - b.datetime) // 导出按时间正序
+        .map(e=>[
+          new Date(e.datetime).toISOString(),
+          e.type,
+          csvEscape(e.title),
+          csvEscape(e.notes||'')
+        ].join(','))
+        .join('\n');
+      const csv = '\ufeff' + header + rows; // BOM for Excel UTF-8
+      const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'timeline.csv';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    // 导入 CSV（覆盖缓存）
+    document.getElementById('btnImport').addEventListener('click', ()=>{
+      document.getElementById('fileImport').click();
+    });
+    document.getElementById('fileImport').addEventListener('change', (e)=>{
+      const file = e.target.files?.[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        try{
+          const text = String(reader.result);
+          const lines = text.split(/\r?\n/).filter(Boolean);
+          if(lines.length<=1) throw new Error('文件为空');
+          const header = lines[0].toLowerCase();
+          if(!(header.includes('datetime') && header.includes('type') && header.includes('title'))){
+            throw new Error('列头需包含 datetime,type,title');
+          }
+          const imported = [];
+          for(let i=1;i<lines.length;i++){
+            const cols = smartCsvSplit(lines[i]);
+            const [dt, type, title, notes] = cols;
+            const d = new Date(dt);
+            if(isNaN(d)) continue;
+            if(!TYPES.includes(type)) continue;
+            const item = { id: uid(), datetime: d, type, title: (title||'').trim(), notes: (notes||'').trim() };
+            if(!item.title) continue;
+            imported.push(item);
+          }
+          if(imported.length===0) throw new Error('没有有效数据行');
+          if(!confirm(`将导入 ${imported.length} 条记录，并覆盖当前缓存。继续？`)) return;
+          allEvents = imported.sort((a,b)=> b.datetime - a.datetime);
+          saveEvents(allEvents);
+          rebuildAll();
+          alert('导入完成');
+          e.target.value = '';
+        }catch(err){
+          alert('导入失败：'+err.message);
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // 清空
+    document.getElementById('btnClear').addEventListener('click', ()=>{
+      if(confirm('确定清空所有本地数据？此操作不可恢复。')){
+        allEvents = [];
+        saveEvents(allEvents);
+        rebuildAll();
+      }
+    });
+
+    /*** 辅助：CSV/HTML ***/
+    function csvEscape(s){
+      const t = String(s).replaceAll('"','""');
+      if(t.includes(',') || t.includes('\n') || t.includes('"')) return '"'+t+'"';
+      return t;
+    }
+    function smartCsvSplit(line){
+      // 解析带引号的 CSV 行
+      const out = []; let cur = ''; let q = false;
+      for(let i=0;i<line.length;i++){
+        const ch = line[i];
+        if(ch==='"'){
+          if(q && line[i+1]==='"'){ cur+='"'; i++; }
+          else q = !q;
+        }else if(ch===',' && !q){ out.push(cur); cur=''; }
+        else { cur += ch; }
+      }
+      out.push(cur);
+      return out;
+    }
+    function escapeHtml(str=''){
+      return String(str)
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'",'&#39;');
+    }
+    // —— 弹窗交互 ——
+    const modalAdd = document.getElementById('modalAdd');
+    const btnAdd = document.getElementById('btnAdd');
+    const btnCloseModal = document.getElementById('btnCloseModal');
+    const btnCancel = document.getElementById('btnCancel');
+
+    function openModal(){
+      modalAdd.style.display = 'flex';
+      initNow();
+      setTimeout(()=>{ try{ document.getElementById('title').focus(); }catch{} }, 0);
+    }
+    function closeModal(){ modalAdd.style.display = 'none'; }
+
+    btnAdd?.addEventListener('click', openModal);
+    btnCloseModal?.addEventListener('click', closeModal);
+    btnCancel?.addEventListener('click', closeModal);
+    modalAdd.addEventListener('click', (e)=>{ if(e.target === modalAdd) closeModal(); });
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeModal(); });
+
+    // 初始化
+    initNow();
+    rebuildAll();
+  </script>
+</body>
+</html>
